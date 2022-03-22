@@ -3,7 +3,6 @@ package gjson
 import (
 	"bytes"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"math/rand"
 	"strconv"

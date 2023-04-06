@@ -1319,7 +1319,7 @@ func TestNumFloatString(t *testing.T) {
 }
 
 func TestDuplicateKeys(t *testing.T) {
-	// this is vaild json according to the JSON spec
+	// this is valid json according to the JSON spec
 	var json = `{"name": "Alex","name": "Peter"}`
 	if Parse(json).Get("name").String() !=
 		Parse(json).Map()["name"].String() {
@@ -2501,4 +2501,92 @@ func TestGroup(t *testing.T) {
   `
 	res = Get(json, `{"id":issues.#.id,"plans":issues.#.fields.labels.#(%"plan:*")#|#.#}|@group|#(plans>=2)#.id`).Raw
 	assert(t, res == `["123"]`)
+}
+
+func testJSONString(t *testing.T, str string) {
+	gjsonString := string(AppendJSONString(nil, str))
+	data, err := json.Marshal(str)
+	if err != nil {
+		panic(123)
+	}
+	goString := string(data)
+	if gjsonString != goString {
+		t.Fatal(strconv.Quote(str) + "\n\t" +
+			gjsonString + "\n\t" +
+			goString + "\n\t<<< MISMATCH >>>")
+	}
+}
+
+func TestJSONString(t *testing.T) {
+	testJSONString(t, "hello")
+	testJSONString(t, "he\"llo")
+	testJSONString(t, "he\"l\\lo")
+	const input = `{"utf8":"Example emoji, KO: \ud83d\udd13, \ud83c\udfc3 ` +
+		`OK: \u2764\ufe0f "}`
+	value := Get(input, "utf8")
+	var s string
+	json.Unmarshal([]byte(value.Raw), &s)
+	if value.String() != s {
+		t.Fatalf("expected '%v', got '%v'", s, value.String())
+	}
+	testJSONString(t, s)
+	testJSONString(t, "R\xfd\xfc\a!\x82eO\x16?_\x0f\x9ab\x1dr")
+	testJSONString(t, "_\xb9\v\xad\xb3|X!\xb6\xd9U&\xa4\x1a\x95\x04")
+	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
+	start := time.Now()
+	var buf [16]byte
+	for time.Since(start) < time.Second*2 {
+		if _, err := rng.Read(buf[:]); err != nil {
+			t.Fatal(err)
+		}
+		testJSONString(t, string(buf[:]))
+	}
+}
+
+func TestIndexAtSymbol(t *testing.T) {
+	json := `{
+		"@context": {
+		  "rdfs": "http://www.w3.org/2000/01/rdf-schema#",
+		  "@vocab": "http://schema.org/",
+		  "sh": "http://www.w3.org/ns/shacl#"
+		}
+	}`
+	assert(t, Get(json, "@context.@vocab").Index == 85)
+}
+
+func TestDeepModifierWithOptions(t *testing.T) {
+	rawJson := `{"x":[{"y":[{"z":{"b":1, "c": 2, "a": 3}}]}]}`
+	jsonPathExpr := `x.#.y.#.z.@pretty:{"sortKeys":true}`
+	results := GetManyBytes([]byte(rawJson), jsonPathExpr)
+	assert(t, len(results) == 1)
+	actual := results[0].Raw
+	expected := `[[{
+  "a": 3,
+  "b": 1,
+  "c": 2
+}
+]]`
+	if expected != actual {
+		t.Fatal(strconv.Quote(rawJson) + "\n\t" +
+			expected + "\n\t" +
+			actual + "\n\t<<< MISMATCH >>>")
+	}
+}
+
+func TestIssue301(t *testing.T) {
+	json := `{
+		"children": ["Sara","Alex","Jack"],
+		"fav.movie": ["Deer Hunter"]
+	}`
+
+	assert(t, Get(json, `children.0`).String() == "Sara")
+	assert(t, Get(json, `children.[0]`).String() == `["Sara"]`)
+	assert(t, Get(json, `children.1`).String() == "Alex")
+	assert(t, Get(json, `children.[1]`).String() == `["Alex"]`)
+	assert(t, Get(json, `children.[10]`).String() == `[]`)
+	assert(t, Get(json, `fav\.movie.0`).String() == "Deer Hunter")
+	assert(t, Get(json, `fav\.movie.[0]`).String() == `["Deer Hunter"]`)
+	assert(t, Get(json, `fav\.movie.1`).String() == "")
+	assert(t, Get(json, `fav\.movie.[1]`).String() == "[]")
+
 }
